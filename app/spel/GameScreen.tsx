@@ -10,6 +10,7 @@ import {
 } from '@/lib/storage';
 import { applyHit, applyMiss, applyUndo } from '@/lib/scoring';
 import { TARGETS } from '@/lib/constants';
+import { getTargetLabel } from '@/lib/ui-helpers';
 import type { GameSession, Player } from '@/lib/types';
 
 function triggerVibrate(ms: number): void {
@@ -151,10 +152,16 @@ export default function GameScreen() {
   }
 
   const s = session!;
+
+  // Guard: win-effect navigates away next tick; don't render with finished state
+  if (s.game.status === 'finished') {
+    return <div className="min-h-[100dvh] bg-zinc-950" />;
+  }
+
   const currentState = s.playerStates[s.currentPlayerIndex];
   const currentPlayer = players.find((p) => p.id === currentState.playerId)!;
   const currentTargetIdx = currentState.targetIndex;
-  const currentTarget = TARGETS[currentTargetIdx];
+  const currentTarget = TARGETS[currentTargetIdx]; // safe: status === 'playing' here
   const nextTarget =
     currentTargetIdx + 1 < TARGETS.length ? TARGETS[currentTargetIdx + 1] : null;
 
@@ -205,7 +212,7 @@ export default function GameScreen() {
           }}
         />
         <div
-          key={`${currentTarget}-${s.currentPlayerIndex}`}
+          key={`${currentTargetIdx}-${s.currentPlayerIndex}`}
           className="relative font-mono font-bold text-amber-400 leading-none tabular-nums tracking-tight animate-[target-in_0.14s_cubic-bezier(0.16,1,0.3,1)]"
           style={{
             fontSize:
@@ -214,7 +221,7 @@ export default function GameScreen() {
                 : 'clamp(8rem, 52vw, 15rem)',
           }}
         >
-          {String(currentTarget)}
+          {getTargetLabel(currentTargetIdx)}
         </div>
         <div className="mt-5 h-5 flex items-center gap-2">
           {nextTarget !== null ? (
@@ -271,7 +278,6 @@ export default function GameScreen() {
             const player = players.find((p) => p.id === playerId)!;
             const pState = s.playerStates[idx];
             const isActive = idx === s.currentPlayerIndex;
-            const playerTarget = TARGETS[pState.targetIndex];
             return (
               <div key={playerId} className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
@@ -293,7 +299,7 @@ export default function GameScreen() {
                     isActive ? 'text-amber-400' : 'text-zinc-700'
                   }`}
                 >
-                  {String(playerTarget)}
+                  {getTargetLabel(pState.targetIndex)}
                 </span>
               </div>
             );
