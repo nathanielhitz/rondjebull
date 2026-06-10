@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import {
   loadActiveSession,
   saveActiveSession,
-  clearActiveSession,
   saveGame,
 } from '@/lib/storage';
 import { applyHit, applyMiss, applyUndo } from '@/lib/scoring';
@@ -27,19 +26,6 @@ function IconUndo() {
   );
 }
 
-function IconTrophy() {
-  return (
-    <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6" />
-      <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18" />
-      <path d="M4 22h16" />
-      <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22" />
-      <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22" />
-      <path d="M18 2H6v7a6 6 0 0 0 12 0V2z" />
-    </svg>
-  );
-}
-
 export default function GameScreen() {
   const router = useRouter();
 
@@ -48,11 +34,15 @@ export default function GameScreen() {
   const [loaded, setLoaded] = useState(false);
   const gameSavedRef = useRef(false);
 
-  // Load from storage on mount; redirect if nothing there
+  // Load from storage on mount; redirect if nothing there or game already finished
   useEffect(() => {
     const data = loadActiveSession();
     if (!data) {
       router.replace('/spelers');
+      return;
+    }
+    if (data.session.game.status === 'finished') {
+      router.replace('/winst');
       return;
     }
     setPlayers(data.players);
@@ -66,14 +56,15 @@ export default function GameScreen() {
     saveActiveSession({ players, session });
   }, [session, players, loaded]);
 
-  // On win: save finished game to IndexedDB and clear active session
+  // On win: save to IndexedDB, keep session for WinScreen, navigate
   useEffect(() => {
     if (!session || session.game.status !== 'finished') return;
     if (gameSavedRef.current) return;
     gameSavedRef.current = true;
     saveGame(session.game).catch(() => {});
-    clearActiveSession();
-  }, [session]);
+    saveActiveSession({ players, session });
+    router.push('/winst');
+  }, [session, players, router]);
 
   const handleHit = useCallback(() => {
     triggerVibrate(30);
@@ -89,31 +80,6 @@ export default function GameScreen() {
     setSession((s) => (s ? applyUndo(s) : s));
   }, []);
 
-  // "Nog een potje" — same players, new game (win screen will navigate here in step 3)
-  const handleNewGame = useCallback(() => {
-    gameSavedRef.current = false;
-    const newSession = {
-      ...session!,
-      game: {
-        ...session!.game,
-        id: `game-${Date.now()}`,
-        date: new Date().toISOString(),
-        status: 'playing' as const,
-        winnerId: null,
-      },
-      playerStates: players.map((p) => ({
-        playerId: p.id,
-        targetIndex: 0,
-        finished: false,
-      })),
-      currentPlayerIndex: 0,
-      dartCount: 0,
-      history: [],
-    };
-    setSession(newSession);
-    saveActiveSession({ players, session: newSession });
-  }, [session, players]);
-
   // Loading state — brief flash while localStorage is read
   if (!loaded) {
     return <div className="min-h-[100dvh] bg-zinc-950" />;
@@ -127,42 +93,6 @@ export default function GameScreen() {
   const currentTarget = TARGETS[currentTargetIdx];
   const nextTarget =
     currentTargetIdx + 1 < TARGETS.length ? TARGETS[currentTargetIdx + 1] : null;
-  const isFinished = s.game.status === 'finished';
-  const winnerPlayer = players.find((p) => p.id === s.game.winnerId);
-
-  // ── Winner screen ─────────────────────────────────────────────────────────
-  if (isFinished && winnerPlayer) {
-    return (
-      <div className="min-h-[100dvh] bg-zinc-950 flex flex-col items-center justify-center px-6 text-center">
-        <div className="text-amber-400 mb-6">
-          <IconTrophy />
-        </div>
-        <p className="text-zinc-600 text-[10px] uppercase tracking-[0.22em] mb-3">Winnaar</p>
-        <h1
-          className="font-bold tracking-tighter text-zinc-50 leading-none"
-          style={{ fontSize: 'clamp(3rem, 18vw, 5.5rem)' }}
-        >
-          {winnerPlayer.name}
-        </h1>
-        <p className="text-zinc-600 mt-3 text-sm">heeft de Bull geraakt</p>
-        <div className="w-full max-w-xs mt-16 flex flex-col gap-3">
-          <button
-            onClick={handleNewGame}
-            className="h-16 w-full bg-amber-500 text-zinc-950 font-bold text-lg rounded-xl transition-transform duration-75 active:scale-[0.97]"
-          >
-            Nog een potje
-          </button>
-          <button
-            onClick={() => router.push('/leaderboard')}
-            className="h-14 w-full bg-zinc-900 text-zinc-400 font-semibold rounded-xl border border-zinc-800 transition-transform duration-75 active:scale-[0.97]"
-          >
-            Naar leaderboard
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   // ── Game screen ───────────────────────────────────────────────────────────
   return (
     <div className="min-h-[100dvh] bg-zinc-950 text-zinc-50 flex flex-col select-none overflow-hidden">
