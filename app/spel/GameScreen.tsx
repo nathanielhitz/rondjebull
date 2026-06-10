@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   loadActiveSession,
   saveActiveSession,
+  clearActiveSession,
   saveGame,
 } from '@/lib/storage';
 import { applyHit, applyMiss, applyUndo } from '@/lib/scoring';
@@ -26,13 +27,24 @@ function IconUndo() {
   );
 }
 
+function IconX() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  );
+}
+
 export default function GameScreen() {
   const router = useRouter();
 
   const [players, setPlayers] = useState<Player[]>([]);
   const [session, setSession] = useState<GameSession | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [showStopDialog, setShowStopDialog] = useState(false);
   const gameSavedRef = useRef(false);
+  const wakeLockRef = useRef<{ release: () => Promise<void> } | null>(null);
 
   // Load from storage on mount; redirect if nothing there or game already finished
   useEffect(() => {
@@ -66,6 +78,53 @@ export default function GameScreen() {
     router.push('/winst');
   }, [session, players, router]);
 
+  // Screen Wake Lock — acquire on load, re-acquire after tab becomes visible again
+  useEffect(() => {
+    if (!loaded) return;
+    if (typeof navigator === 'undefined' || !('wakeLock' in navigator)) return;
+
+    const acquire = async () => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+      } catch {
+        // denied or not supported — silent
+      }
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') acquire();
+    };
+
+    acquire();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      wakeLockRef.current?.release().catch(() => {});
+      wakeLockRef.current = null;
+    };
+  }, [loaded]);
+
+  // Warn on page refresh / close
+  useEffect(() => {
+    if (!loaded) return;
+    const handle = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener('beforeunload', handle);
+    return () => window.removeEventListener('beforeunload', handle);
+  }, [loaded]);
+
+  // Intercept browser back button
+  useEffect(() => {
+    if (!loaded) return;
+    history.pushState(null, '', location.href);
+    const handle = () => {
+      history.pushState(null, '', location.href);
+      setShowStopDialog(true);
+    };
+    window.addEventListener('popstate', handle);
+    return () => window.removeEventListener('popstate', handle);
+  }, [loaded]);
+
   const handleHit = useCallback(() => {
     triggerVibrate(30);
     setSession((s) => (s ? applyHit(s) : s));
@@ -80,12 +139,17 @@ export default function GameScreen() {
     setSession((s) => (s ? applyUndo(s) : s));
   }, []);
 
+  const handleConfirmStop = useCallback(() => {
+    wakeLockRef.current?.release().catch(() => {});
+    clearActiveSession();
+    router.push('/');
+  }, [router]);
+
   // Loading state — brief flash while localStorage is read
   if (!loaded) {
     return <div className="min-h-[100dvh] bg-zinc-950" />;
   }
 
-  // Type-narrowed after this point
   const s = session!;
   const currentState = s.playerStates[s.currentPlayerIndex];
   const currentPlayer = players.find((p) => p.id === currentState.playerId)!;
@@ -93,12 +157,12 @@ export default function GameScreen() {
   const currentTarget = TARGETS[currentTargetIdx];
   const nextTarget =
     currentTargetIdx + 1 < TARGETS.length ? TARGETS[currentTargetIdx + 1] : null;
-  // ── Game screen ───────────────────────────────────────────────────────────
+
   return (
     <div className="min-h-[100dvh] bg-zinc-950 text-zinc-50 flex flex-col select-none overflow-hidden">
 
       {/* ── Header ── */}
-      <header className="flex items-start justify-between px-5 pt-6 pb-0 flex-shrink-0">
+      <header className="flex items-start justify-between px-5 pt-5 pb-0 flex-shrink-0">
         <div>
           <p className="text-zinc-600 text-[10px] uppercase tracking-[0.22em] font-medium leading-none">
             Aan de beurt
@@ -107,8 +171,15 @@ export default function GameScreen() {
             {currentPlayer.name}
           </p>
         </div>
-        <div className="text-right">
-          <p className="text-zinc-600 text-[10px] uppercase tracking-[0.22em] font-medium leading-none">
+        <div className="flex flex-col items-end">
+          <button
+            onClick={() => setShowStopDialog(true)}
+            aria-label="Potje stoppen"
+            className="h-10 w-10 -mr-2 -mt-1 flex items-center justify-center text-zinc-700 active:text-zinc-400 transition-colors rounded-xl"
+          >
+            <IconX />
+          </button>
+          <p className="text-zinc-600 text-[10px] uppercase tracking-[0.22em] font-medium leading-none mt-0.5">
             Dart {s.dartCount + 1} van&nbsp;3
           </p>
           <div className="flex gap-1.5 justify-end mt-2.5">
@@ -229,6 +300,30 @@ export default function GameScreen() {
           })}
         </div>
       </div>
+
+      {/* ── Stop dialog ── */}
+      {showStopDialog && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 px-4 pb-8">
+          <div className="w-full max-w-sm bg-zinc-900 rounded-2xl border border-zinc-800 p-6 flex flex-col gap-3">
+            <div className="mb-1">
+              <h2 className="text-lg font-bold text-zinc-50">Potje stoppen?</h2>
+              <p className="text-zinc-500 text-sm mt-1">De huidige stand wordt verwijderd.</p>
+            </div>
+            <button
+              onClick={handleConfirmStop}
+              className="h-14 w-full bg-zinc-800 text-zinc-300 font-semibold rounded-xl border border-zinc-700 transition-transform duration-75 active:scale-[0.97]"
+            >
+              Ja, stoppen
+            </button>
+            <button
+              onClick={() => setShowStopDialog(false)}
+              className="h-14 w-full bg-amber-500 text-zinc-950 font-bold rounded-xl transition-transform duration-75 active:scale-[0.97]"
+            >
+              Nee, doorgaan
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

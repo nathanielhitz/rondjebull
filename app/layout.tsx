@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import ServiceWorkerRegistrar from "./ServiceWorkerRegistrar";
 
 // Runs synchronously before React hydrates.
 // Ensures crypto APIs exist on http:// LAN (non-secure context):
@@ -41,7 +42,13 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "RondjeBull",
-  description: "Darts-scorekeeeper voor Cricket / RondjeBull",
+  description: "Darts-scorekeeper voor Cricket / Bull",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "RondjeBull",
+  },
 };
 
 export default function RootLayout({
@@ -56,8 +63,13 @@ export default function RootLayout({
     >
       <head>
         <script dangerouslySetInnerHTML={{ __html: CRYPTO_POLYFILL }} />
+        <meta name="theme-color" content="#f59e0b" />
+        <link rel="apple-touch-icon" href="/icons/icon.svg" />
       </head>
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <ServiceWorkerRegistrar />
+        {children}
+      </body>
     </html>
   );
 }
