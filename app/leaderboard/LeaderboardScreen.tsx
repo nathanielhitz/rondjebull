@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { getFinishedGames, getAllPlayers } from '@/lib/storage';
+import { getFinishedGames, getAllPlayers, clearFinishedGames } from '@/lib/storage';
 
 interface Entry {
   playerId: string;
@@ -24,6 +24,8 @@ export default function LeaderboardScreen() {
   const router = useRouter();
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [showResetDialog, setShowResetDialog] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
     Promise.all([getFinishedGames(), getAllPlayers()])
@@ -58,6 +60,19 @@ export default function LeaderboardScreen() {
       .catch(() => {})
       .finally(() => setLoaded(true));
   }, []);
+
+  const handleReset = async () => {
+    setResetting(true);
+    try {
+      await clearFinishedGames();
+      setEntries([]);
+    } catch {
+      // silent — entries stay as-is
+    } finally {
+      setResetting(false);
+      setShowResetDialog(false);
+    }
+  };
 
   if (!loaded) {
     return <div className="min-h-[100dvh] bg-zinc-950" />;
@@ -142,15 +157,51 @@ export default function LeaderboardScreen() {
         )}
       </div>
 
-      {/* ── Footer button ── */}
-      <div className="px-4 pt-4 pb-8 flex-shrink-0">
+      {/* ── Footer ── */}
+      <div className="px-4 pt-4 pb-8 flex-shrink-0 flex flex-col gap-4">
         <button
           onClick={() => router.push('/')}
           className="w-full h-14 bg-zinc-900 text-zinc-400 font-semibold rounded-xl border border-zinc-800 transition-transform duration-75 active:scale-[0.97]"
         >
           Terug naar Home
         </button>
+        {entries.length > 0 && (
+          <button
+            onClick={() => setShowResetDialog(true)}
+            className="w-full h-9 text-zinc-700 text-xs font-medium active:text-zinc-500 transition-colors"
+          >
+            Leaderboard resetten
+          </button>
+        )}
       </div>
+
+      {/* ── Reset confirmation dialog ── */}
+      {showResetDialog && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 px-4 pb-8">
+          <div className="w-full max-w-sm bg-zinc-900 rounded-2xl border border-zinc-800 p-6 flex flex-col gap-3">
+            <div className="mb-1">
+              <h2 className="text-lg font-bold text-zinc-50">Leaderboard resetten?</h2>
+              <p className="text-zinc-500 text-sm mt-1.5 leading-relaxed">
+                Weet je zeker dat je alle resultaten wilt wissen?
+                Dit kan niet ongedaan worden gemaakt.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowResetDialog(false)}
+              className="h-14 w-full bg-amber-500 text-zinc-950 font-bold rounded-xl transition-transform duration-75 active:scale-[0.97]"
+            >
+              Annuleren
+            </button>
+            <button
+              onClick={handleReset}
+              disabled={resetting}
+              className="h-14 w-full bg-zinc-800 text-zinc-400 font-semibold rounded-xl border border-zinc-700 transition-transform duration-75 active:scale-[0.97] disabled:opacity-50"
+            >
+              {resetting ? 'Bezig…' : 'Wissen'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

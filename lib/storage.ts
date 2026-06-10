@@ -81,3 +81,11 @@ export async function saveGame(game: Game): Promise<void> {
   const db = await getDB();
   await db.put("games", game);
 }
+
+export async function clearFinishedGames(): Promise<void> {
+  const db = await getDB();
+  const games = await db.getAll("games");
+  await Promise.all(
+    games.filter((g) => g.status === "finished").map((g) => db.delete("games", g.id))
+  );
+}
